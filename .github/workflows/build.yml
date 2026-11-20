@@ -8,31 +8,60 @@ jobs:
   build:
     runs-on: macos-14
     steps:
+      - uses: actions/checkout@v4
+
       - name: Clone WebDriverAgent
         run: |
-          git clone https://github.com/appium/WebDriverAgent.git .
+          git clone https://github.com/appium/WebDriverAgent.git wda
+          ls wda/WebDriverAgentLib/Commands/ | head -20
+
+      - name: Apply media patches
+        run: |
+          cp patches/FBMediaCommands.h wda/WebDriverAgentLib/Commands/
+          cp patches/FBMediaCommands.m wda/WebDriverAgentLib/Commands/
+          echo "Patched files copied"
+
+      - name: Patch Xcode project
+        run: |
+          gem install xcodeproj
+          cd wda
+          ruby ../patches/patch_project.rb WebDriverAgent.xcodeproj
+
+      - name: Patch Info.plist
+        run: |
+          cd wda
+          PLIST="WebDriverAgentRunner/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'WDA needs Photos access to save and manage media'" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'WDA needs Photos access to save and manage media'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 'WDA needs Photos access to save media'" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 'WDA needs Photos access to save media'" "$PLIST"
+          echo "Plist patched"
 
       - name: Build WebDriverAgentRunner
         run: |
+          cd wda
           xcodebuild build-for-testing \
             -project WebDriverAgent.xcodeproj \
             -scheme WebDriverAgentRunner \
             -sdk iphoneos \
             -configuration Release \
             -derivedDataPath ./build \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO
 
       - name: Package IPA
         run: |
+          cd wda
           mkdir -p Payload
           APP_PATH=$(find ./build -name "WebDriverAgentRunner-Runner.app" -type d | head -n 1)
           echo "Found app at: $APP_PATH"
           cp -r "$APP_PATH" Payload/
-          zip -r WebDriverAgentRunner.ipa Payload
-          ls -lh WebDriverAgentRunner.ipa
+          zip -r ../WebDriverAgentRunner-Media.ipa Payload
+          ls -lh ../WebDriverAgentRunner-Media.ipa
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WebDriverAgentRunner-IPA
-          path: WebDriverAgentRunner.ipa
+          name: WebDriverAgentRunner-Media
+          path: WebDriverAgentRunner-Media.ipa
+          retention-days: 90
