@@ -74,7 +74,9 @@
           NSArray<NSString *> *wanted = @[
             @"Allow Full Access",
             @"Allow Access to All Photos",
-            @"Разрешить полный доступ"
+            @"Разрешить полный доступ",
+            @"Delete",
+            @"Удалить"
           ];
           BOOL tapped = NO;
           for (NSString *label in wanted) {
@@ -259,6 +261,8 @@
 
   __block NSError *delError = nil;
   dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+
+  [self autoAcceptPhotosAlertWithTimeout:15.0];
 
   [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
     [PHAssetChangeRequest deleteAssets:assets];
