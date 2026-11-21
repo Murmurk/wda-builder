@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# Patches WebDriverAgent.xcodeproj to include FBMediaCommands and Photos.framework
 require 'xcodeproj'
 
 project_path = ARGV[0] || 'WebDriverAgent.xcodeproj'
@@ -6,38 +7,26 @@ project = Xcodeproj::Project.open(project_path)
 
 lib_target = project.targets.find { |t| t.name == 'WebDriverAgentLib' }
 raise "WebDriverAgentLib target not found" unless lib_target
-puts "Target: #{lib_target.name}"
 
-commands_group = nil
-project.main_group.recursive_children.each do |g|
-  next unless g.respond_to?(:children)
-  gname = g.respond_to?(:name) ? g.name : nil
-  gpath = g.respond_to?(:path) ? g.path : nil
-  next unless gname == 'Commands' || (gpath && gpath.end_with?('Commands'))
-  commands_group = g
-  puts "Found Commands group: name=#{gname} path=#{gpath}"
-  break
-end
+commands_group = project.main_group
+  .recursive_children
+  .find { |g| g.respond_to?(:path) && g.path == 'Commands' && g.parent.path == 'WebDriverAgentLib' }
 
 unless commands_group
-  puts "DEBUG: all groups in project:"
-  project.main_group.recursive_children.each do |g|
-    next unless g.respond_to?(:children)
-    gn = g.respond_to?(:name) ? g.name : nil
-    gp = g.respond_to?(:path) ? g.path : nil
-    puts "  #{gn || '(nil)'} | #{gp || '(nil)'}"
-  end
-  raise "Commands group not found"
+  wda_lib_group = project.main_group.recursive_children.find { |g|
+    g.respond_to?(:path) && g.path == 'WebDriverAgentLib'
+  }
+  raise "WebDriverAgentLib group not found" unless wda_lib_group
+  commands_group = wda_lib_group.children.find { |g| g.respond_to?(:name) && (g.name == 'Commands' || g.path&.end_with?('Commands')) }
+  raise "Commands group not found" unless commands_group
 end
 
+puts "Found Commands group: #{commands_group.real_path}"
+
 %w[FBMediaCommands.h FBMediaCommands.m].each do |fname|
-  existing = commands_group.files.find { |f|
-    fn = f.respond_to?(:name) ? f.name : nil
-    fp = f.respond_to?(:path) ? f.path : nil
-    fn == fname || (fp && fp.end_with?(fname))
-  }
+  existing = commands_group.files.find { |f| f.name == fname || f.path&.end_with?(fname) }
   if existing
-    puts "#{fname} already in project"
+    puts "#{fname} already in project, skipping"
     next
   end
   ref = commands_group.new_file(fname)
@@ -49,6 +38,7 @@ end
   end
 end
 
+# Add Photos.framework
 existing_photos = lib_target.frameworks_build_phase.files.find { |f|
   f.display_name == 'Photos.framework'
 }

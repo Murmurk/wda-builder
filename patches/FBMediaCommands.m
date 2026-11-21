@@ -1,5 +1,6 @@
 #import "FBMediaCommands.h"
 #import <Photos/Photos.h>
+#import <XCTest/XCTest.h>
 #import "FBRoute.h"
 #import "FBRouteRequest.h"
 #import "FBResponsePayload.h"
@@ -51,21 +52,100 @@
   return result;
 }
 
++ (void)autoAcceptPhotosAlertWithTimeout:(NSTimeInterval)timeout
+{
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+    XCUIApplication *springboard = [[XCUIApplication alloc]
+                                    initWithBundleIdentifier:@"com.apple.springboard"];
+    NSTimeInterval deadline = [NSDate date].timeIntervalSince1970 + timeout;
+    while ([NSDate date].timeIntervalSince1970 < deadline) {
+      @autoreleasepool {
+        @try {
+          XCUIElementQuery *alerts = springboard.alerts;
+          if (alerts.count == 0) {
+            [NSThread sleepForTimeInterval:0.3];
+            continue;
+          }
+          XCUIElement *alert = alerts.firstMatch;
+          if (!alert.exists) {
+            [NSThread sleepForTimeInterval:0.3];
+            continue;
+          }
+          NSArray<NSString *> *wanted = @[
+            @"Allow Full Access",
+            @"Allow Access to All Photos",
+            @"Разрешить полный доступ"
+          ];
+          BOOL tapped = NO;
+          for (NSString *label in wanted) {
+            XCUIElement *btn = alert.buttons[label];
+            if (btn.exists && btn.isHittable) {
+              [btn tap];
+              tapped = YES;
+              break;
+            }
+          }
+          if (tapped) return;
+          XCUIElement *allow = alert.buttons[@"Allow"];
+          if (allow.exists && allow.isHittable) {
+            [allow tap];
+            return;
+          }
+        } @catch (NSException *e) {
+          // springboard query может бросить при переходном состоянии — игнорируем
+        }
+        [NSThread sleepForTimeInterval:0.5];
+      }
+    }
+  });
+}
+
++ (NSString *)statusStringForAuth:(PHAuthorizationStatus)status
+{
+  switch (status) {
+    case PHAuthorizationStatusAuthorized: return @"authorized";
+    case PHAuthorizationStatusDenied: return @"denied";
+    case PHAuthorizationStatusRestricted: return @"restricted";
+    case PHAuthorizationStatusNotDetermined: return @"not_determined";
+    default: return @"limited";
+  }
+}
+
 + (id<FBResponsePayload>)handleAuthorizePhotos:(FBRouteRequest *)request
 {
   PHAuthorizationStatus status = [self currentAuthStatus];
+
+  if (status == PHAuthorizationStatusAuthorized || status == 4 /* Limited */) {
+    return FBResponseWithObject(@{
+      @"status": [self statusStringForAuth:status],
+      @"statusCode": @(status),
+      @"autoAccepted": @(NO)
+    });
+  }
+
+  if (status != PHAuthorizationStatusNotDetermined) {
+    return FBResponseWithObject(@{
+      @"status": [self statusStringForAuth:status],
+      @"statusCode": @(status),
+      @"autoAccepted": @(NO)
+    });
+  }
+
+  [self autoAcceptPhotosAlertWithTimeout:30.0];
+  [NSThread sleepForTimeInterval:0.5];
+
+  status = [self requestAuthAndWait:60.0];
+  [NSThread sleepForTimeInterval:1.0];
+
   if (status == PHAuthorizationStatusNotDetermined) {
-    status = [self requestAuthAndWait:60.0];
+    status = [self currentAuthStatus];
   }
-  NSString *statusStr;
-  switch (status) {
-    case PHAuthorizationStatusAuthorized: statusStr = @"authorized"; break;
-    case PHAuthorizationStatusDenied: statusStr = @"denied"; break;
-    case PHAuthorizationStatusRestricted: statusStr = @"restricted"; break;
-    case PHAuthorizationStatusNotDetermined: statusStr = @"not_determined"; break;
-    default: statusStr = @"limited"; break;
-  }
-  return FBResponseWithObject(@{@"status": statusStr, @"statusCode": @(status)});
+
+  return FBResponseWithObject(@{
+    @"status": [self statusStringForAuth:status],
+    @"statusCode": @(status),
+    @"autoAccepted": @(YES)
+  });
 }
 
 #pragma mark - Save
