@@ -135,9 +135,10 @@
   [NSThread sleepForTimeInterval:0.5];
 
   status = [self requestAuthAndWait:60.0];
-  [NSThread sleepForTimeInterval:1.0];
 
-  if (status == PHAuthorizationStatusNotDetermined) {
+  // Poll until iOS actually updates the status after alert accept
+  for (int i = 0; i < 20 && (status == PHAuthorizationStatusNotDetermined); i++) {
+    [NSThread sleepForTimeInterval:0.5];
     status = [self currentAuthStatus];
   }
 
@@ -169,7 +170,13 @@
 
   PHAuthorizationStatus authStatus = [self currentAuthStatus];
   if (authStatus == PHAuthorizationStatusNotDetermined) {
-    authStatus = [self requestAuthAndWait:30.0];
+    [self autoAcceptPhotosAlertWithTimeout:30.0];
+    [NSThread sleepForTimeInterval:0.5];
+    authStatus = [self requestAuthAndWait:60.0];
+    for (int i = 0; i < 20 && (authStatus == PHAuthorizationStatusNotDetermined); i++) {
+      [NSThread sleepForTimeInterval:0.5];
+      authStatus = [self currentAuthStatus];
+    }
   }
   if (authStatus != PHAuthorizationStatusAuthorized
       && authStatus != 4 /* PHAuthorizationStatusLimited */) {
