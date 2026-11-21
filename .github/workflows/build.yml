@@ -10,9 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone WebDriverAgent
+      - name: Clone WebDriverAgent v13.2.0
         run: |
-          git clone https://github.com/appium/WebDriverAgent.git wda
+          git clone --depth 1 --branch v13.2.0 https://github.com/appium/WebDriverAgent.git wda
+          cd wda && git log --oneline -1
           ls wda/WebDriverAgentLib/Commands/ | head -20
 
       - name: Apply media patches
@@ -31,7 +32,7 @@ jobs:
         run: |
           cd wda
           PLIST="WebDriverAgentRunner/Info.plist"
-          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'WDA needs Photos access to save and manage media'" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'WDA needs Photos access to save and manage media' " "$PLIST" 2>/dev/null || \
           /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'WDA needs Photos access to save and manage media'" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 'WDA needs Photos access to save media'" "$PLIST" 2>/dev/null || \
           /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 'WDA needs Photos access to save media'" "$PLIST"
@@ -65,3 +66,4 @@ jobs:
           name: WebDriverAgentRunner-Media
           path: WebDriverAgentRunner-Media.ipa
           retention-days: 90
+
