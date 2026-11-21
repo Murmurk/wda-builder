@@ -152,13 +152,19 @@
 
 + (id<FBResponsePayload>)handleSaveMedia:(FBRouteRequest *)request
 {
-  NSString *urlString = request.arguments[@"url"];
-  if (!urlString) {
-    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'url' is required" traceback:nil]);
+  NSString *b64 = request.arguments[@"data"];
+  NSString *mediaType = request.arguments[@"mediaType"];
+  NSString *filename = request.arguments[@"filename"];
+
+  if (!b64 || b64.length == 0) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:
+      @"'data' (base64) is required" traceback:nil]);
   }
-  NSURL *url = [NSURL URLWithString:urlString];
-  if (!url) {
-    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"Invalid URL" traceback:nil]);
+
+  NSData *data = [[NSData alloc] initWithBase64EncodedString:b64 options:NSDataBase64DecodingIgnoreUnknownCharacters];
+  if (!data || data.length == 0) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:
+      @"Failed to decode base64 'data'" traceback:nil]);
   }
 
   PHAuthorizationStatus authStatus = [self currentAuthStatus];
@@ -171,34 +177,15 @@
       @"Photos not authorized. Call /wda/authorizePhotos first and accept the dialog" traceback:nil]);
   }
 
-  dispatch_semaphore_t dlSem = dispatch_semaphore_create(0);
-  __block NSData *data = nil;
-  __block NSError *dlError = nil;
-  __block NSHTTPURLResponse *httpResp = nil;
-  NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url
-    completionHandler:^(NSData *d, NSURLResponse *resp, NSError *err) {
-      data = d;
-      dlError = err;
-      if ([resp isKindOfClass:[NSHTTPURLResponse class]]) {
-        httpResp = (NSHTTPURLResponse *)resp;
-      }
-      dispatch_semaphore_signal(dlSem);
-    }];
-  [task resume];
-  if (dispatch_semaphore_wait(dlSem, dispatch_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_SEC))) {
-    return FBResponseWithStatus([FBCommandStatus unknownErrorWithMessage:@"Download timed out (120s)" traceback:nil]);
+  NSString *ext = @"jpg";
+  if (filename) {
+    ext = [[filename pathExtension] lowercaseString];
   }
-  if (dlError || !data || data.length == 0) {
-    NSString *msg = dlError ? dlError.localizedDescription : @"Empty response";
-    return FBResponseWithStatus([FBCommandStatus unknownErrorWithMessage:msg traceback:nil]);
+  if ([mediaType isEqualToString:@"video"] && (!ext || ext.length == 0 || [ext isEqualToString:@"jpg"])) {
+    ext = @"mp4";
   }
-  if (httpResp && httpResp.statusCode >= 400) {
-    NSString *msg = [NSString stringWithFormat:@"HTTP %ld", (long)httpResp.statusCode];
-    return FBResponseWithStatus([FBCommandStatus unknownErrorWithMessage:msg traceback:nil]);
-  }
-
-  NSString *ext = [[url pathExtension] lowercaseString];
-  BOOL isVideo = [@[@"mp4", @"mov", @"m4v", @"avi", @"3gp"] containsObject:ext];
+  BOOL isVideo = [mediaType isEqualToString:@"video"] ||
+                 [@[@"mp4", @"mov", @"m4v", @"avi", @"3gp"] containsObject:ext];
 
   NSString *tempDir = NSTemporaryDirectory();
   NSString *fileName = [NSString stringWithFormat:@"wda_%@.%@", [[NSUUID UUID] UUIDString], ext.length ? ext : @"jpg"];
